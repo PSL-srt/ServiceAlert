@@ -52,8 +52,8 @@
   </div>
 
   <div id="historyContent" class="hidden">
-    <div class="bg-white p-2 rounded-xl shadow mb-6 flex items-center border-2 border-gray-100">
-      <input type="text" id="searchInput" onkeypress="if(event.key === 'Enter') filterHistory()" class="w-full outline-none text-sm px-3" placeholder="พิมพ์คำค้นหา...">
+    <div class="bg-white p-2 rounded-xl shadow mb-6 flex items-center border-2 border-gray-100 focus-within:border-red-800 transition-colors">
+      <input type="text" id="searchInput" onkeypress="if(event.key === 'Enter') filterHistory()" class="w-full outline-none text-sm px-3" placeholder="พิมพ์คำค้นหา (เช่น รหัสเคส, หลอดไฟ, ชานชาลา)...">
       <button onclick="filterHistory()" class="bg-gray-900 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-black transition-all flex-shrink-0 shadow">🔍 ค้นหา</button>
     </div>
     <div id="historyContainer"></div>
@@ -61,8 +61,8 @@
 
   <div id="statsContent" class="hidden">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-      <div class="bg-white p-6 rounded-xl shadow"><h3 class="text-center font-bold text-gray-700 mb-4">สถิติรายเดือน</h3><canvas id="monthlyChart"></canvas></div>
-      <div class="bg-white p-6 rounded-xl shadow"><h3 class="text-center font-bold text-gray-700 mb-4">ประเภทปัญหา</h3><div class="w-4/5 mx-auto"><canvas id="typeChart"></canvas></div></div>
+      <div class="bg-white p-6 rounded-xl shadow"><h3 class="text-center font-bold text-gray-700 mb-4">สถิติการแจ้งเหตุรายเดือน</h3><canvas id="monthlyChart"></canvas></div>
+      <div class="bg-white p-6 rounded-xl shadow"><h3 class="text-center font-bold text-gray-700 mb-4">สัดส่วนประเภทปัญหา</h3><div class="w-4/5 mx-auto"><canvas id="typeChart"></canvas></div></div>
     </div>
     
     <div class="bg-white p-6 rounded-xl shadow mt-6 border border-gray-100">
@@ -77,59 +77,90 @@
         </div>
         <div id="exportFilterValueContainer" class="w-full md:w-1/3 hidden transition-all"></div>
         <div class="w-full md:w-1/3">
-          <button onclick="exportExcelReport(this)" class="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md transition-all">ดาวน์โหลด Excel</button>
+          <button onclick="exportExcelReport(this)" class="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-md transition-all flex items-center justify-center">ดาวน์โหลด Excel</button>
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="mt-12 text-center pb-8">
+    <p class="text-[10px] text-gray-400 opacity-70 tracking-widest uppercase">พัฒนาโดย ทีมนวัตกรรม กองจัดการเดินรถเขต 3</p>
   </div>
 </div>
 
 <div id="adminSuccessModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50 backdrop-filter blur-sm px-4">
   <div class="bg-white p-8 rounded-3xl text-center shadow-2xl max-w-sm w-full border-t-8 border-green-500">
+    <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+    </div>
     <h2 class="text-2xl font-bold text-gray-800 mb-6" style="font-family: Kanit">แก้ไขเสร็จเรียบร้อย</h2>
-    <button onclick="document.getElementById('adminSuccessModal').classList.add('hidden')" class="w-full bg-green-600 text-white font-bold py-3.5 rounded-xl hover:bg-green-700">ตกลง</button>
+    <button onclick="document.getElementById('adminSuccessModal').classList.add('hidden')" class="w-full bg-green-600 text-white font-bold py-3.5 rounded-xl hover:bg-green-700 transition-all shadow-md text-base">ตกลง</button>
   </div>
 </div>
 
 <script>
 // ==========================================
-// API URL (เปลี่ยนจาก /dev เป็น /exec)
+// API URL
 // ==========================================
-const API_URL = "https://script.google.com/macros/s/AKfycbxjgs516AzMpx0BJnm5pnjehSdKiL7c5Lg8WHNreU4EQQ9FdSrpqzhwdSYJskl2xm75Vg/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxJ4WqwNJWgVJyW5QwX9MXoo4ipZi30astacnbXcCta/exec";
 
 Chart.register(ChartDataLabels);
 var myMonthlyChart = null, myTypeChart = null, allHistoryCases = [];
 
-function attemptLogin() {
-  if (document.getElementById('adminPassword').value.trim() === "srt") {
-    document.getElementById('loginSection').style.display = "none";
-    document.getElementById('dashboardSection').classList.remove('hidden');
-    loadDashboard();
-  } else { alert("รหัสผ่านไม่ถูกต้อง"); }
+// 🔐 ตัวแปรเก็บรหัสผ่าน (จะถูกดึงไปใช้เวลาเรียกข้อมูลหรือบันทึกข้อมูล)
+let sessionPwd = "";
+
+async function attemptLogin() {
+  var pwdInput = document.getElementById('adminPassword').value.trim();
+  if(!pwdInput) return alert("กรุณากรอกรหัสผ่าน");
+  
+  var btn = document.getElementById('loginBtn');
+  var originalText = btn.innerHTML;
+  btn.innerHTML = 'กำลังตรวจสอบสิทธิ์...'; 
+  btn.disabled = true;
+
+  try {
+    // 🛡️ ส่งรหัสผ่านไปถามเซิร์ฟเวอร์
+    const res = await fetch(API_URL + "?action=verifyLogin&pwd=" + encodeURIComponent(pwdInput)).then(r=>r.json());
+    
+    if(res.status === "success") {
+      sessionPwd = pwdInput; // บันทึกรหัสผ่านไว้ใน Session ตัวแปร
+      document.getElementById('loginSection').style.display = "none";
+      document.getElementById('dashboardSection').classList.remove('hidden');
+      loadDashboard();
+    } else { 
+      alert("❌ รหัสผ่านไม่ถูกต้อง"); 
+    }
+  } catch(e) { 
+    alert("❌ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้"); 
+  }
+  
+  btn.innerHTML = originalText; 
+  btn.disabled = false;
 }
 
 function switchTab(type) {
   var tabs = { 'active': ['tabActive', 'activeContent'], 'history': ['tabHistory', 'historyContent'], 'stats': ['tabStats', 'statsContent'] };
   for (var k in tabs) {
-    document.getElementById(tabs[k][0]).className = (k === type) ? "flex-1 py-3 px-4 font-bold border-b-4 border-red-800 text-red-800" : "flex-1 py-3 px-4 font-bold border-b-4 border-transparent text-gray-500 hover:text-red-800";
+    document.getElementById(tabs[k][0]).className = (k === type) ? "flex-1 py-3 px-4 font-bold border-b-4 border-red-800 text-red-800 transition-colors" : "flex-1 py-3 px-4 font-bold border-b-4 border-transparent text-gray-500 hover:text-red-800 transition-colors";
     if (k === type) document.getElementById(tabs[k][1]).classList.remove('hidden');
     else document.getElementById(tabs[k][1]).classList.add('hidden');
   }
   if (type === 'active') loadDashboard(); else if (type === 'history') loadHistory(); else if (type === 'stats') loadCharts();
 }
 
-// Fetch โหลดข้อมูล Dashboard
+// 🛡️ ทุกครั้งที่ดึงข้อมูล ต้องแนบ &pwd=sessionPwd ไปด้วยเสมอ
 async function loadDashboard() {
   try {
-    fetch(API_URL + "?action=getDashboardStats").then(r=>r.json()).then(res => { if(res.status==="success") showStats(res.data); });
-    fetch(API_URL + "?action=getActiveCases").then(r=>r.json()).then(res => { if(res.status==="success") displayCases(res.data); });
+    fetch(API_URL + "?action=getDashboardStats&pwd=" + sessionPwd).then(r=>r.json()).then(res => { if(res.status==="success") showStats(res.data); });
+    fetch(API_URL + "?action=getActiveCases&pwd=" + sessionPwd).then(r=>r.json()).then(res => { if(res.status==="success") displayCases(res.data); });
   } catch(e) { console.error("Error", e); }
 }
 
 async function loadHistory() {
-  document.getElementById('historyContainer').innerHTML = '<div class="text-center py-10"><p>กำลังดึงข้อมูล...</p></div>';
+  document.getElementById('historyContainer').innerHTML = '<div class="text-center py-10"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-red-800 mx-auto"></div><p class="text-xs text-gray-500 mt-2">กำลังดึงข้อมูลประวัติ...</p></div>';
   try {
-    const res = await fetch(API_URL + "?action=getClosedCases").then(r=>r.json());
+    const res = await fetch(API_URL + "?action=getClosedCases&pwd=" + sessionPwd).then(r=>r.json());
     if(res.status==="success") { allHistoryCases = res.data; displayHistory(allHistoryCases); }
   } catch(e) { document.getElementById('historyContainer').innerHTML = '<p class="text-red-500 text-center">เกิดข้อผิดพลาด</p>'; }
 }
@@ -137,12 +168,12 @@ async function loadHistory() {
 function filterHistory() {
   var query = document.getElementById('searchInput').value.toLowerCase().trim();
   if (!query) return displayHistory(allHistoryCases);
-  displayHistory(allHistoryCases.filter(c => (c.caseId||"").toLowerCase().includes(query) || (c.location||"").toLowerCase().includes(query) || (c.type||"").toLowerCase().includes(query)));
+  displayHistory(allHistoryCases.filter(c => (c.caseId||"").toLowerCase().includes(query) || (c.location||"").toLowerCase().includes(query) || (c.type||"").toLowerCase().includes(query) || (c.detail||"").toLowerCase().includes(query) || (c.remark||"").toLowerCase().includes(query)));
 }
 
 async function loadCharts() {
   try {
-    const res = await fetch(API_URL + "?action=getChartData").then(r=>r.json());
+    const res = await fetch(API_URL + "?action=getChartData&pwd=" + sessionPwd).then(r=>r.json());
     if(res.status==="success") renderCharts(res.data);
   } catch(e) { console.error("Chart load error", e); }
 }
@@ -167,19 +198,19 @@ function displayCases(cases) {
     var contactStr = c.contact ? String(c.contact).trim() : "-";
     var isCanCall = contactStr !== "-" && contactStr !== "" && !contactStr.includes("ไม่ระบุ");
     var callHtml = isCanCall 
-      ? `<div class="bg-blue-50 p-3.5 rounded-xl mb-4 flex justify-between items-center shadow-sm">
-          <div><p class="text-xs text-blue-800 font-bold">👤 ผู้แจ้ง: ${c.reporter}</p><p class="text-base font-bold text-gray-800">📞 เบอร์: ${contactStr}</p></div>
-          <a href="tel:${contactStr}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow">📱 โทรติดต่อ</a></div>`
-      : `<div class="bg-gray-50 p-3 rounded-lg mb-4 text-xs text-gray-400 italic text-center">🚫 ไม่ระบุเบอร์โทร</div>`;
+      ? `<div class="bg-blue-50 p-3.5 rounded-xl mb-4 border border-blue-200 flex justify-between items-center shadow-sm">
+          <div><p class="text-xs text-blue-800 font-bold">👤 ผู้แจ้ง: ${c.reporter}</p><p class="text-base font-bold text-gray-800 mt-0.5">📞 เบอร์: ${contactStr}</p></div>
+          <a href="tel:${contactStr}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow flex items-center transition-all">📱 โทรติดต่อ</a></div>`
+      : `<div class="bg-gray-50 p-3 rounded-lg mb-4 text-xs text-gray-400 italic text-center border border-gray-100">🚫 ผู้แจ้งไม่สะดวกให้ติดต่อกลับ หรือไม่ได้ระบุเบอร์โทร</div>`;
 
     var actionHtml = isAccepted 
       ? `<div class="p-4 bg-yellow-50 rounded-xl border border-yellow-100">
           <p class="text-xs text-yellow-700 font-bold mb-2">📸 อัปโหลดรูปภาพหลังแก้ไข</p>
           <input type="file" id="file_${c.row}" accept="image/*" class="text-sm mb-3 w-full bg-white p-2 rounded">
-          <textarea id="remark_${c.row}" rows="2" class="w-full border-2 border-yellow-200 rounded-lg p-3 text-sm mb-4" placeholder="ระบุหมายเหตุ..."></textarea>
-          <button onclick="finishCase(${c.row}, this)" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow">🟢 ปิดเคสและส่งรายงาน</button>
+          <textarea id="remark_${c.row}" rows="2" class="w-full border-2 border-yellow-200 rounded-lg p-3 text-sm mb-4 focus:outline-none focus:border-yellow-400" placeholder="ระบุหมายเหตุ/การแก้ไข (เช่น โทรแจ้งกลับผู้แจ้งแล้ว)..."></textarea>
+          <button onclick="finishCase(${c.row}, this)" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow transition-colors">🟢 ปิดเคสและส่งรายงาน</button>
          </div>`
-      : `<button onclick="acceptCase(${c.row}, this)" class="w-full bg-red-800 hover:bg-red-900 text-white py-3 rounded-lg font-bold shadow">✋ รับเรื่องดำเนินการ</button>`;
+      : `<button onclick="acceptCase(${c.row}, this)" class="w-full bg-red-800 hover:bg-red-900 text-white py-3 rounded-lg font-bold shadow transition-colors">✋ รับเรื่องดำเนินการ</button>`;
 
     html += `<div class="bg-white p-6 rounded-xl shadow mb-5 border-l-8 ${isAccepted ? 'border-yellow-400' : 'border-red-500'}">
       <div class="flex justify-between items-center mb-4"><span class="text-lg font-bold text-gray-800">${c.caseId}</span><span class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full font-bold">${c.type}</span></div>
@@ -195,30 +226,34 @@ function displayHistory(cases) {
   let html = '';
   cases.forEach(c => {
     var dStr = c.doneDate ? new Date(c.doneDate).toLocaleString('th-TH') : "-";
-    let pdfBtn = (c.pdfUrl && c.pdfUrl.includes("http")) ? `<a href="${c.pdfUrl}" target="_blank" class="block w-full text-center bg-gray-800 hover:bg-black text-white py-3 rounded-lg text-sm font-bold shadow">📄 เปิดดูรายงาน PDF</a>` : `<p class="text-center text-xs text-gray-400">ไม่มีรายงาน PDF</p>`;
+    let pdfBtn = (c.pdfUrl && c.pdfUrl.includes("http")) ? `<a href="${c.pdfUrl}" target="_blank" class="block w-full text-center bg-gray-800 hover:bg-black text-white py-3 rounded-lg text-sm font-bold shadow transition-colors">📄 เปิดดูรายงาน PDF</a>` : `<p class="text-center text-xs text-gray-400">ไม่มีรายงาน PDF</p>`;
     
-    html += `<div class="bg-white p-5 rounded-xl shadow mb-4 border-l-8 border-green-500">
+    html += `<div class="bg-white p-5 rounded-xl shadow mb-4 border-l-8 border-green-500 hover:bg-gray-50 transition-colors">
       <div class="flex justify-between items-start mb-3"><div><span class="font-bold text-gray-800 text-lg">${c.caseId}</span><p class="text-xs text-gray-500 mt-1">เสร็จเมื่อ: ${dStr}</p></div><span class="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-bold">${c.type}</span></div>
       <p class="text-sm text-gray-700 mb-1">📍 <b>สถานที่:</b> ${c.location}</p><p class="text-sm text-gray-700 mb-3">📝 <b>รายละเอียดเดิม:</b> ${c.detail}</p>
-      <div class="bg-blue-50 p-3 rounded-lg mb-4"><p class="text-sm text-blue-800 font-bold">✅ หมายเหตุ: <span class="font-normal">${c.remark}</span></p></div>
+      <div class="bg-blue-50 p-3 rounded-lg mb-4 border border-blue-100"><p class="text-sm text-blue-800 font-bold">✅ หมายเหตุเจ้าหน้าที่: <span class="font-normal">${c.remark}</span></p></div>
       ${pdfBtn}</div>`;
   });
   container.innerHTML = html;
 }
 
-// Fetch POST รับเรื่อง
+// 🛡️ ส่งข้อมูล POST แนบรหัสผ่านไปด้วย (pwd: sessionPwd)
 async function acceptCase(row, btn) {
   var name = document.getElementById('officerName').value;
   if(!name) return alert('กรุณาพิมพ์ชื่อเจ้าหน้าที่รับเรื่อง');
   btn.disabled = true; btn.innerText = "กำลังรับเรื่อง...";
   
   try {
-    const res = await fetch(API_URL, { method: "POST", body: JSON.stringify({ action: "updateCase", row: row, updateType: "accept", officerName: name }) }).then(r=>r.json());
-    if(res.status === "success") loadDashboard(); else { alert("ผิดพลาด: " + res.message); btn.disabled = false; btn.innerText = "✋ รับเรื่องดำเนินการ"; }
+    const res = await fetch(API_URL, { 
+      method: "POST", 
+      body: JSON.stringify({ action: "updateCase", pwd: sessionPwd, row: row, updateType: "accept", officerName: name }) 
+    }).then(r=>r.json());
+    
+    if(res.status === "success") loadDashboard(); 
+    else { alert("ผิดพลาด: " + res.message); btn.disabled = false; btn.innerText = "✋ รับเรื่องดำเนินการ"; }
   } catch(e) { alert("เชื่อมต่อไม่ได้"); btn.disabled = false; }
 }
 
-// Fetch POST ปิดเคส
 async function finishCase(row, btn) {
   var fileInput = document.getElementById('file_'+row);
   var remarkInput = document.getElementById('remark_'+row).value;
@@ -228,7 +263,11 @@ async function finishCase(row, btn) {
   var file = fileInput.files[0]; var reader = new FileReader();
   reader.onload = async function(e) {
     try {
-      const res = await fetch(API_URL, { method: "POST", body: JSON.stringify({ action: "updateCase", row: row, updateType: "done", remark: remarkInput, imageFile: e.target.result.split(',')[1], mimeType: file.type }) }).then(r=>r.json());
+      const res = await fetch(API_URL, { 
+        method: "POST", 
+        body: JSON.stringify({ action: "updateCase", pwd: sessionPwd, row: row, updateType: "done", remark: remarkInput, imageFile: e.target.result.split(',')[1], mimeType: file.type }) 
+      }).then(r=>r.json());
+      
       if(res.status === "success") { document.getElementById('adminSuccessModal').classList.remove('hidden'); loadDashboard(); } 
       else { alert("ผิดพลาด: " + res.message); btn.disabled = false; btn.innerText = "🟢 ปิดเคสและส่งรายงาน"; }
     } catch(err) { alert("เชื่อมต่อไม่ได้"); btn.disabled = false; }
@@ -261,32 +300,33 @@ function renderCharts(data) {
   });
 }
 
-// ส่วนดาวน์โหลด Excel
 function toggleExportInputs() {
   var type = document.getElementById('exportFilterType').value;
   var container = document.getElementById('exportFilterValueContainer');
   if (type === 'all') container.classList.add('hidden');
   else if (type === 'month') {
     container.classList.remove('hidden');
-    container.innerHTML = '<label class="text-xs font-bold block">เดือนและปี</label><div class="flex gap-2"><select id="exportMonth" class="w-1/2 p-2 border-2 rounded"><option value="1">ม.ค.</option><option value="2">ก.พ.</option><option value="3">มี.ค.</option><option value="4">เม.ย.</option><option value="5">พ.ค.</option><option value="6">มิ.ย.</option><option value="7">ก.ค.</option><option value="8">ส.ค.</option><option value="9">ก.ย.</option><option value="10">ต.ค.</option><option value="11">พ.ย.</option><option value="12">ธ.ค.</option></select><input type="number" id="exportYear" value="'+new Date().getFullYear()+'" class="w-1/2 p-2 border-2 rounded text-center"></div>';
+    container.innerHTML = '<label class="text-xs font-bold block mb-1">เดือนและปี</label><div class="flex gap-2"><select id="exportMonth" class="w-1/2 p-2.5 border-2 border-gray-200 rounded-lg text-sm focus:border-red-800 outline-none"><option value="1">ม.ค.</option><option value="2">ก.พ.</option><option value="3">มี.ค.</option><option value="4">เม.ย.</option><option value="5">พ.ค.</option><option value="6">มิ.ย.</option><option value="7">ก.ค.</option><option value="8">ส.ค.</option><option value="9">ก.ย.</option><option value="10">ต.ค.</option><option value="11">พ.ย.</option><option value="12">ธ.ค.</option></select><input type="number" id="exportYear" value="'+new Date().getFullYear()+'" class="w-1/2 p-2.5 border-2 border-gray-200 rounded-lg text-sm text-center focus:border-red-800 outline-none"></div>';
     document.getElementById('exportMonth').value = new Date().getMonth() + 1;
   } 
   else if (type === 'year') {
     container.classList.remove('hidden');
-    container.innerHTML = '<label class="text-xs font-bold block">ระบุปี (ค.ศ.)</label><input type="number" id="exportYearOnly" value="'+new Date().getFullYear()+'" class="w-full p-2.5 border-2 rounded text-center">';
+    container.innerHTML = '<label class="text-xs font-bold block mb-1">ระบุปี (ค.ศ.)</label><input type="number" id="exportYearOnly" value="'+new Date().getFullYear()+'" class="w-full p-2.5 border-2 border-gray-200 rounded-lg text-sm text-center focus:border-red-800 outline-none">';
   } 
   else if (type === 'problem') {
     container.classList.remove('hidden');
-    container.innerHTML = '<label class="text-xs font-bold block">เลือกประเภท</label><select id="exportProblemType" class="w-full p-2.5 border-2 rounded"><option value="ความสะอาด">ความสะอาด</option><option value="อุปกรณ์ชำรุด">อุปกรณ์ชำรุด</option><option value="ไฟฟ้า/แสงสว่าง">ไฟฟ้า/แสงสว่าง</option><option value="ห้องน้ำ">ห้องน้ำ</option><option value="อื่นๆ">อื่นๆ</option></select>';
+    container.innerHTML = '<label class="text-xs font-bold block mb-1">เลือกประเภท</label><select id="exportProblemType" class="w-full p-2.5 border-2 border-gray-200 rounded-lg text-sm focus:border-red-800 outline-none"><option value="ความสะอาด">ความสะอาด</option><option value="อุปกรณ์ชำรุด">อุปกรณ์ชำรุด</option><option value="ไฟฟ้า/แสงสว่าง">ไฟฟ้า/แสงสว่าง</option><option value="ห้องน้ำ">ห้องน้ำ</option><option value="อื่นๆ">อื่นๆ</option></select>';
   }
 }
 
+// 🛡️ ส่งรหัสผ่านไปกับคำขอดาวน์โหลดด้วย
 async function exportExcelReport(btn) {
   var originalText = btn.innerHTML;
-  btn.innerHTML = 'กำลังเตรียมไฟล์...'; btn.disabled = true;
+  btn.innerHTML = '<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2 inline-block align-middle"></div> กำลังเตรียมไฟล์...'; 
+  btn.disabled = true;
 
   var type = document.getElementById('exportFilterType').value;
-  var queryParams = "?action=getMonthlyExportData&type=" + type;
+  var queryParams = "?action=getMonthlyExportData&pwd=" + sessionPwd + "&type=" + type;
   if(type === 'month') queryParams += "&month=" + document.getElementById('exportMonth').value + "&year=" + document.getElementById('exportYear').value;
   else if(type === 'year') queryParams += "&year=" + document.getElementById('exportYearOnly').value;
   else if(type === 'problem') queryParams += "&value=" + encodeURIComponent(document.getElementById('exportProblemType').value);
@@ -297,6 +337,7 @@ async function exportExcelReport(btn) {
     if(res.status === "success" && res.data.length > 1) {
       var wb = XLSX.utils.book_new();
       var ws = XLSX.utils.aoa_to_sheet(res.data);
+      ws['!cols'] = [ {wch: 6}, {wch: 12}, {wch: 12}, {wch: 15}, {wch: 20}, {wch: 30}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 18}, {wch: 15}, {wch: 25} ];
       XLSX.utils.book_append_sheet(wb, ws, "Report");
       XLSX.writeFile(wb, 'Report_Phitsanulok.xlsx');
     } else alert("❌ ไม่พบข้อมูล");
