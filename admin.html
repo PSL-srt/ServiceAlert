@@ -100,7 +100,7 @@
 
 <script>
 // ==========================================
-// API URL
+// API URL 
 // ==========================================
 const API_URL = "https://script.google.com/macros/s/AKfycbxJ4WqwNJWgVJyW5QwX9MXoo4ipZi30astacnbXcCta/exec";
 
@@ -152,33 +152,37 @@ function switchTab(type) {
 // 🛡️ ทุกครั้งที่ดึงข้อมูล ต้องแนบ &pwd=sessionPwd ไปด้วยเสมอ
 async function loadDashboard() {
   try {
-    fetch(API_URL + "?action=getDashboardStats&pwd=" + sessionPwd).then(r=>r.json()).then(res => { if(res.status==="success") showStats(res.data); });
-    fetch(API_URL + "?action=getActiveCases&pwd=" + sessionPwd).then(r=>r.json()).then(res => { if(res.status==="success") displayCases(res.data); });
+    fetch(API_URL + "?action=getDashboardStats&pwd=" + encodeURIComponent(sessionPwd)).then(r=>r.json()).then(res => { if(res.status==="success") showStats(res.data); });
+    fetch(API_URL + "?action=getActiveCases&pwd=" + encodeURIComponent(sessionPwd)).then(r=>r.json()).then(res => { if(res.status==="success") displayCases(res.data); });
   } catch(e) { console.error("Error", e); }
 }
 
-async function loadHistory() {
+// ⚡ ดึงประวัติ โดยกำหนดจำนวน 20 รายการแรกก่อน
+async function loadHistory(limit = 20) {
   document.getElementById('historyContainer').innerHTML = '<div class="text-center py-10"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-red-800 mx-auto"></div><p class="text-xs text-gray-500 mt-2">กำลังดึงข้อมูลประวัติ...</p></div>';
   try {
-    const res = await fetch(API_URL + "?action=getClosedCases&pwd=" + sessionPwd).then(r=>r.json());
-    if(res.status==="success") { allHistoryCases = res.data; displayHistory(allHistoryCases); }
-  } catch(e) { document.getElementById('historyContainer').innerHTML = '<p class="text-red-500 text-center">เกิดข้อผิดพลาด</p>'; }
+    const res = await fetch(API_URL + "?action=getClosedCases&pwd=" + encodeURIComponent(sessionPwd) + "&limit=" + limit).then(r=>r.json());
+    if(res.status==="success") { 
+      allHistoryCases = res.data; 
+      displayHistory(allHistoryCases, limit); 
+    }
+  } catch(e) { document.getElementById('historyContainer').innerHTML = '<p class="text-red-500 text-center">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>'; }
 }
 
 function filterHistory() {
   var query = document.getElementById('searchInput').value.toLowerCase().trim();
-  if (!query) return displayHistory(allHistoryCases);
-  displayHistory(allHistoryCases.filter(c => (c.caseId||"").toLowerCase().includes(query) || (c.location||"").toLowerCase().includes(query) || (c.type||"").toLowerCase().includes(query) || (c.detail||"").toLowerCase().includes(query) || (c.remark||"").toLowerCase().includes(query)));
+  if (!query) return displayHistory(allHistoryCases, allHistoryCases.length);
+  // ระบุ status 'search' เพื่อไม่ให้แสดงปุ่ม โหลดเพิ่ม 
+  displayHistory(allHistoryCases.filter(c => (c.caseId||"").toLowerCase().includes(query) || (c.location||"").toLowerCase().includes(query) || (c.type||"").toLowerCase().includes(query) || (c.detail||"").toLowerCase().includes(query) || (c.remark||"").toLowerCase().includes(query)), 'search');
 }
 
 async function loadCharts() {
   try {
-    const res = await fetch(API_URL + "?action=getChartData&pwd=" + sessionPwd).then(r=>r.json());
+    const res = await fetch(API_URL + "?action=getChartData&pwd=" + encodeURIComponent(sessionPwd)).then(r=>r.json());
     if(res.status==="success") renderCharts(res.data);
   } catch(e) { console.error("Chart load error", e); }
 }
 
-// UI แสดงสถิติและเคส
 function showStats(s) {
   document.getElementById('statTotal').innerText = s.total;
   document.getElementById('statDone').innerText = s.done;
@@ -220,9 +224,11 @@ function displayCases(cases) {
   container.innerHTML = html;
 }
 
-function displayHistory(cases) {
+// ⚡ UI แสดงประวัติ และปุ่มโหลดเพิ่ม
+function displayHistory(cases, limitOrStatus) {
   var container = document.getElementById('historyContainer');
   if (!cases || cases.length === 0) { container.innerHTML = '<div class="text-center py-10 bg-white shadow rounded-xl"><p class="text-gray-400 font-bold">❌ ไม่พบข้อมูล</p></div>'; return; }
+  
   let html = '';
   cases.forEach(c => {
     var dStr = c.doneDate ? new Date(c.doneDate).toLocaleString('th-TH') : "-";
@@ -234,6 +240,14 @@ function displayHistory(cases) {
       <div class="bg-blue-50 p-3 rounded-lg mb-4 border border-blue-100"><p class="text-sm text-blue-800 font-bold">✅ หมายเหตุเจ้าหน้าที่: <span class="font-normal">${c.remark}</span></p></div>
       ${pdfBtn}</div>`;
   });
+
+  // แสดงปุ่มโหลดเพิ่ม หากดึงมาได้ครบโควต้า 20 อัน
+  if (typeof limitOrStatus === 'number' && cases.length >= limitOrStatus) {
+    html += `<button onclick="loadHistory(${limitOrStatus + 20})" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-3.5 rounded-xl font-bold mt-2 mb-6 transition-colors shadow-sm">
+      ⏳ โหลดประวัติเก่าเพิ่มอีก 20 รายการ 👇
+    </button>`;
+  }
+
   container.innerHTML = html;
 }
 
@@ -326,7 +340,7 @@ async function exportExcelReport(btn) {
   btn.disabled = true;
 
   var type = document.getElementById('exportFilterType').value;
-  var queryParams = "?action=getMonthlyExportData&pwd=" + sessionPwd + "&type=" + type;
+  var queryParams = "?action=getMonthlyExportData&pwd=" + encodeURIComponent(sessionPwd) + "&type=" + type;
   if(type === 'month') queryParams += "&month=" + document.getElementById('exportMonth').value + "&year=" + document.getElementById('exportYear').value;
   else if(type === 'year') queryParams += "&year=" + document.getElementById('exportYearOnly').value;
   else if(type === 'problem') queryParams += "&value=" + encodeURIComponent(document.getElementById('exportProblemType').value);
